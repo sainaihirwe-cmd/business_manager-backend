@@ -1,0 +1,11 @@
+import { Request, Response, Router } from 'express';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { body, validationResult } from 'express-validator';
+import { Business, User } from '../models';
+import { env } from '../config/env';
+const router=Router();
+const issue=(id:string,businessId:string)=>jwt.sign({id,businessId},env.jwtSecret,{expiresIn:'7d'});
+router.post('/register',[body('name').trim().isLength({min:2}),body('email').isEmail().normalizeEmail(),body('password').isLength({min:8}),body('businessName').trim().isLength({min:2})],async(req:Request,res:Response)=>{const errors=validationResult(req);if(!errors.isEmpty())return res.status(400).json({message:'Please provide valid registration details'});const {name,email,password,businessName}=req.body;if(await User.findOne({email}))return res.status(409).json({message:'Email already registered'});const business=await Business.create({name:businessName});const user=await User.create({name,email,passwordHash:await bcrypt.hash(password,12),business:business._id});res.status(201).json({token:issue(String(user._id),String(business._id)),user:{id:user._id,name:user.name,email:user.email},business});});
+router.post('/login',[body('email').isEmail(),body('password').isString().notEmpty()],async(req:Request,res:Response)=>{const errors=validationResult(req);if(!errors.isEmpty())return res.status(400).json({message:'Email and password are required'});const user=await User.findOne({email:req.body.email}).populate('business');if(!user||!(await bcrypt.compare(req.body.password,user.passwordHash)))return res.status(401).json({message:'Invalid email or password'});const businessId=typeof user.business==='object'&&user.business!==null&&'_id' in user.business?String(user.business._id):String(user.business);res.json({token:issue(String(user._id),businessId),user:{id:user._id,name:user.name,email:user.email},business:user.business});});
+export default router;
